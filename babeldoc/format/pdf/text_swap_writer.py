@@ -191,10 +191,12 @@ def text_swap_write(
                 f"font-family: sans-serif; }}"
             )
 
-            # Strip BabelDOC's rich-text <style> markup, then HTML-escape
+            # Strip BabelDOC's rich-text markup, then HTML-escape
             clean_text = re.sub(r"<style[^>]*>", "", translated_text)
             clean_text = re.sub(r"</style>", "", clean_text)
-            safe_text = html.escape(clean_text)
+            # Strip {v1}, {v2}, etc. rich-text variant markers
+            clean_text = re.sub(r"\{v\d+\}", "", clean_text)
+            safe_text = html.escape(clean_text.strip())
 
             result = page.insert_htmlbox(
                 rect,
