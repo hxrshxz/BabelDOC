@@ -6,6 +6,7 @@ translated paragraph box, and inserts the translated text using
 ``insert_htmlbox`` (which handles CJK, mixed scripts, and auto-scaling).
 """
 
+import html
 import logging
 import re
 from pathlib import Path
@@ -190,15 +191,21 @@ def text_swap_write(
                 f"font-family: sans-serif; }}"
             )
 
-            excess = page.insert_htmlbox(
+            # HTML-escape the text to prevent < > & from breaking parsing
+            safe_text = html.escape(translated_text)
+
+            result = page.insert_htmlbox(
                 rect,
-                translated_text,
+                safe_text,
                 css=css,
                 scale_low=0.2,  # allow scaling down to 20%
                 rotate=0,
             )
 
-            if excess > 0:
+            # insert_htmlbox may return float or tuple depending on version
+            excess = result[0] if isinstance(result, tuple) else result
+
+            if excess is not None and excess > 0:
                 logger.debug(
                     "Text overflow at (%.0f,%.0f)-(%.0f,%.0f): %.0f excess",
                     rect.x0,
