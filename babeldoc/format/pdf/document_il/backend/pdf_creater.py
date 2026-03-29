@@ -242,12 +242,13 @@ class RectangleRenderUnit(RenderUnit):
         draw_op.append(
             rectangle.graphic_state.passthrough_per_char_instruction.encode(),
         )
+        draw_op.append(b" ")
 
         line_width = self.line_width
         if rectangle.line_width is not None:
             line_width = rectangle.line_width
         if line_width > 0:
-            draw_op.append(f" {line_width:.6f} w ".encode())
+            draw_op.append(f"{line_width:.6f} w ".encode())
 
         draw_op.append(f"{x1:.6f} {y1:.6f} {width:.6f} {height:.6f} re ".encode())
         if rectangle.fill_background:
@@ -1501,13 +1502,19 @@ class PDFCreater:
             xobj_draw_ops[xobj.xobj_id] = xobj_op
         page_op = BitStream()
         # q {ops_base}Q 1 0 0 1 {x0} {y0} cm {ops_new}
-        if self.translation_config.text_swap_mode and page.base_operations:
-            # In text-swap mode, preserve original content stream
-            page_op.append(b"q ")
-            base_op = page.base_operations.value
-            base_op = zstd_decompress(base_op)
-            page_op.append(base_op.encode() if isinstance(base_op, str) else base_op)
-            page_op.append(b" Q\n")
+        if self.translation_config.text_swap_mode:
+            # In text-swap mode, read the FULL original content stream from the
+            # PDF rather than page.base_operations which has graphic operations
+            # (m, l, c, re, f, S, Do, etc.) stripped by the frontend.
+            orig_page = pdf[page.page_number]
+            xrefs = orig_page.get_contents()
+            original_content = b""
+            for xref in xrefs:
+                original_content += pdf.xref_stream(xref)
+            if original_content:
+                page_op.append(b"q ")
+                page_op.append(original_content)
+                page_op.append(b" Q\n")
         # page_op.append(b"q ")
         # base_op = page.base_operations.value
         # base_op = zstd_decompress(base_op)
