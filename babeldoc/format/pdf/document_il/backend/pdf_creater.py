@@ -644,9 +644,15 @@ class PDFCreater:
         """Convert all renderable objects in a page to render units."""
         render_units = []
 
+        text_swap_mode = getattr(translation_config, "text_swap_mode", False)
+
         # Collect all characters (from page and paragraphs)
         chars = []
-        if page.pdf_character:
+        if text_swap_mode:
+            # In text-swap mode, page-level chars are already in the preserved
+            # content stream — only include paragraph (translated) characters.
+            pass
+        elif page.pdf_character:
             chars.extend(page.pdf_character)
         for paragraph in page.pdf_paragraph:
             chars.extend(self.render_paragraph_to_char(paragraph))
@@ -659,6 +665,26 @@ class PDFCreater:
                 CharacterRenderUnit(char, render_order, sub_render_order)
             )
 
+        # In text-swap mode, add white background rectangles to cover original
+        # text beneath each translated paragraph
+        if text_swap_mode:
+            for i, paragraph in enumerate(page.pdf_paragraph):
+                if not paragraph.pdf_paragraph_composition:
+                    continue
+                if paragraph.box is None:
+                    continue
+                white_rect = il_version_1.PdfRectangle(
+                    box=paragraph.box,
+                    graphic_state=il_version_1.GraphicState(
+                        passthrough_per_char_instruction="1 1 1 rg",
+                    ),
+                    debug_info=False,
+                    fill_background=True,
+                    xobj_id=paragraph.xobj_id,
+                    render_order=5,
+                )
+                render_units.append(RectangleRenderUnit(white_rect, 5, i, line_width=0))
+
         # Collect forms from formulas within paragraphs
         formula_forms = []
         for paragraph in page.pdf_paragraph:
@@ -668,7 +694,12 @@ class PDFCreater:
 
         # Convert forms to render units (page-level forms + forms from formulas)
         if not translation_config.skip_form_render:
-            all_forms = list(page.pdf_form) + formula_forms
+            if text_swap_mode:
+                # In text-swap mode, page-level forms are in the preserved
+                # content stream — only include forms from formulas.
+                all_forms = formula_forms
+            else:
+                all_forms = list(page.pdf_form) + formula_forms
             for i, form in enumerate(all_forms):
                 render_order = getattr(
                     form, "render_order", 50
@@ -705,7 +736,12 @@ class PDFCreater:
 
         # Convert curves to render units (page-level curves + curves from formulas, only for debug)
         if not translation_config.skip_curve_render:
-            all_curves = list(page.pdf_curve) + formula_curves
+            if text_swap_mode:
+                # In text-swap mode, page-level curves are in the preserved
+                # content stream — only include curves from formulas.
+                all_curves = formula_curves
+            else:
+                all_curves = list(page.pdf_curve) + formula_curves
             for i, curve in enumerate(all_curves):
                 if curve.debug_info or translation_config.debug:
                     render_order = getattr(
@@ -1465,6 +1501,13 @@ class PDFCreater:
             xobj_draw_ops[xobj.xobj_id] = xobj_op
         page_op = BitStream()
         # q {ops_base}Q 1 0 0 1 {x0} {y0} cm {ops_new}
+        if self.translation_config.text_swap_mode and page.base_operations:
+            # In text-swap mode, preserve original content stream
+            page_op.append(b"q ")
+            base_op = page.base_operations.value
+            base_op = zstd_decompress(base_op)
+            page_op.append(base_op.encode() if isinstance(base_op, str) else base_op)
+            page_op.append(b" Q\n")
         # page_op.append(b"q ")
         # base_op = page.base_operations.value
         # base_op = zstd_decompress(base_op)

@@ -895,9 +895,13 @@ class Typesetting:
                     else:
                         # 获取最优缩放因子
                         _preserve = (
-                            paragraph.layout_label in LAYOUT_PRESERVE_BLOCK_TYPES
-                            if paragraph.layout_label
-                            else False
+                            True
+                            if self.translation_config.text_swap_mode
+                            else (
+                                paragraph.layout_label in LAYOUT_PRESERVE_BLOCK_TYPES
+                                if paragraph.layout_label
+                                else False
+                            )
                         )
                         optimal_scale = self._get_optimal_scale(
                             paragraph, page, typesetting_units, preserve_box=_preserve
@@ -913,21 +917,22 @@ class Typesetting:
 
         # 获取缩放因子的众数
         if all_scales:
-            try:
-                modes = statistics.multimode(all_scales)
-                mode_scale = min(modes)
-            except statistics.StatisticsError:
-                logger.warning(
-                    "Could not find a mode for paragraph scales. Falling back to median."
-                )
-                mode_scale = statistics.median(all_scales)
-            # 将所有大于众数的值修改为众数
-            for paragraph in all_paragraphs:
-                if (
-                    paragraph.optimal_scale is not None
-                    and paragraph.optimal_scale > mode_scale
-                ):
-                    paragraph.optimal_scale = mode_scale
+            if not self.translation_config.text_swap_mode:
+                try:
+                    modes = statistics.multimode(all_scales)
+                    mode_scale = min(modes)
+                except statistics.StatisticsError:
+                    logger.warning(
+                        "Could not find a mode for paragraph scales. Falling back to median."
+                    )
+                    mode_scale = statistics.median(all_scales)
+                # 将所有大于众数的值修改为众数
+                for paragraph in all_paragraphs:
+                    if (
+                        paragraph.optimal_scale is not None
+                        and paragraph.optimal_scale > mode_scale
+                    ):
+                        paragraph.optimal_scale = mode_scale
         else:
             logger.error(
                 "document_scales is empty, there seems no paragraph in this PDF"
@@ -1002,7 +1007,9 @@ class Typesetting:
                 pass
 
             # 添加与原 retypeset 一致的逻辑检查
-            if not hasattr(paragraph, "debug_id") or not paragraph.debug_id:
+            if not preserve_box and (
+                not hasattr(paragraph, "debug_id") or not paragraph.debug_id
+            ):
                 return scale, final_typeset_units
 
             # 减小缩放因子
@@ -1201,9 +1208,13 @@ class Typesetting:
                     ):
                         conflicting_paras.append(p_lower)
 
-                if conflicting_paras and (
-                    not p_upper.layout_label
-                    or p_upper.layout_label not in LAYOUT_PRESERVE_BLOCK_TYPES
+                if (
+                    conflicting_paras
+                    and (
+                        not p_upper.layout_label
+                        or p_upper.layout_label not in LAYOUT_PRESERVE_BLOCK_TYPES
+                    )
+                    and not self.translation_config.text_swap_mode
                 ):
                     max_y2 = max(
                         p.box.y2
@@ -1280,9 +1291,13 @@ class Typesetting:
 
             # 如果有单元无法直接传递，则进行重排版
             _preserve = (
-                paragraph.layout_label in LAYOUT_PRESERVE_BLOCK_TYPES
-                if paragraph.layout_label
-                else False
+                True
+                if self.translation_config.text_swap_mode
+                else (
+                    paragraph.layout_label in LAYOUT_PRESERVE_BLOCK_TYPES
+                    if paragraph.layout_label
+                    else False
+                )
             )
             paragraph.pdf_paragraph_composition = []
             self.retypeset_with_precomputed_scale(
