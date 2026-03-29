@@ -1084,6 +1084,20 @@ def _do_translate_single(
             translation_config.get_working_file_path("il_translated.json"),
         )
 
+    # --- Text-swap bypass: skip typesetting + backend, use PyMuPDF overlay ---
+    if translation_config.text_swap_mode:
+        logger.info("text_swap_mode enabled — bypassing typesetting + backend")
+        from babeldoc.format.pdf.text_swap_writer import text_swap_write
+
+        result = text_swap_write(
+            docs,
+            original_pdf_path=temp_pdf_path,
+            translation_config=translation_config,
+        )
+        if result is not None:
+            result.original_pdf_path = translation_config.input_file
+        return result
+
     if translation_config.debug:
         AddDebugInformation(translation_config).process(docs)
         xml_converter.write_json(
