@@ -86,6 +86,18 @@ LINE_BREAK_REGEX = regex.compile(
     r"]+$"
 )
 
+# ─── Layout-preserve mode ────────────────────────────────────────────────────
+# Paragraph types listed here keep their original bounding box during
+# typesetting.  Translated text is scaled to fit inside the original box;
+# the box is never expanded downward or rightward, and the paragraph is never
+# shifted by the overlap-avoidance pass.
+LAYOUT_PRESERVE_BLOCK_TYPES: frozenset[str] = frozenset(
+    {
+        "list_item",
+        "list_item_hybrid",
+    }
+)
+
 
 class TypesettingUnit:
     def __str__(self):
@@ -882,8 +894,13 @@ class Typesetting:
                         paragraph.optimal_scale = 1.0
                     else:
                         # 获取最优缩放因子
+                        _preserve = (
+                            paragraph.layout_label in LAYOUT_PRESERVE_BLOCK_TYPES
+                            if paragraph.layout_label
+                            else False
+                        )
                         optimal_scale = self._get_optimal_scale(
-                            paragraph, page, typesetting_units
+                            paragraph, page, typesetting_units, preserve_box=_preserve
                         )
                         paragraph.optimal_scale = optimal_scale
                 except Exception as e:
@@ -924,6 +941,7 @@ class Typesetting:
         initial_scale: float = 1.0,
         use_english_line_break: bool = True,
         apply_layout: bool = False,
+        preserve_box: bool = False,
     ) -> tuple[float, list[TypesettingUnit] | None]:
         """查找最优缩放因子并可选择性地执行布局
 
@@ -934,6 +952,7 @@ class Typesetting:
             initial_scale: 初始缩放因子
             use_english_line_break: 是否使用英文换行规则
             apply_layout: 是否应用布局到 paragraph（True 时执行实际排版）
+            preserve_box: 是否保留原始边界框（True 时不向下/向右扩展边界框）
 
         Returns:
             tuple[float, list[TypesettingUnit] | None]: (最终缩放因子，排版后的单元列表或 None)
@@ -992,7 +1011,7 @@ class Typesetting:
             else:
                 scale -= 0.1
 
-            if scale < 0.7:
+            if scale < 0.7 and not preserve_box:
                 space_expanded = False  # 标记是否成功扩展了空间
 
                 if expand_space_flag == 0:
@@ -1048,6 +1067,7 @@ class Typesetting:
                 initial_scale,
                 use_english_line_break=False,
                 apply_layout=apply_layout,
+                preserve_box=preserve_box,
             )
 
         # 最后返回最小缩放因子
@@ -1059,6 +1079,7 @@ class Typesetting:
         page: il_version_1.Page,
         typesetting_units: list[TypesettingUnit],
         use_english_line_break: bool = True,
+        preserve_box: bool = False,
     ) -> float:
         """获取段落的最优缩放因子，不执行实际排版"""
         scale, _ = self._find_optimal_scale_and_layout(
@@ -1068,6 +1089,7 @@ class Typesetting:
             1.0,
             use_english_line_break,
             apply_layout=False,
+            preserve_box=preserve_box,
         )
         return scale
 
@@ -1078,6 +1100,7 @@ class Typesetting:
         typesetting_units: list[TypesettingUnit],
         precomputed_scale: float,
         use_english_line_break: bool = True,
+        preserve_box: bool = False,
     ):
         """使用预计算的缩放因子进行排版"""
         if not paragraph.box:
@@ -1091,6 +1114,7 @@ class Typesetting:
             precomputed_scale,
             use_english_line_break,
             apply_layout=True,
+            preserve_box=preserve_box,
         )
 
     def typesetting_document(self, document: il_version_1.Document):
@@ -1177,7 +1201,10 @@ class Typesetting:
                     ):
                         conflicting_paras.append(p_lower)
 
-                if conflicting_paras:
+                if conflicting_paras and (
+                    not p_upper.layout_label
+                    or p_upper.layout_label not in LAYOUT_PRESERVE_BLOCK_TYPES
+                ):
                     max_y2 = max(
                         p.box.y2
                         for p in conflicting_paras
@@ -1252,9 +1279,18 @@ class Typesetting:
             )
 
             # 如果有单元无法直接传递，则进行重排版
+            _preserve = (
+                paragraph.layout_label in LAYOUT_PRESERVE_BLOCK_TYPES
+                if paragraph.layout_label
+                else False
+            )
             paragraph.pdf_paragraph_composition = []
             self.retypeset_with_precomputed_scale(
-                paragraph, page, typesetting_units, precomputed_scale
+                paragraph,
+                page,
+                typesetting_units,
+                precomputed_scale,
+                preserve_box=_preserve,
             )
 
             # 重排版后，重新设置段落各字符的 render order
