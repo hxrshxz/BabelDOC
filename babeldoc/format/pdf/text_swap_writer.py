@@ -191,8 +191,10 @@ def text_swap_write(
                 f"font-family: sans-serif; }}"
             )
 
-            # HTML-escape the text to prevent < > & from breaking parsing
-            safe_text = html.escape(translated_text)
+            # Strip BabelDOC's rich-text <style> markup, then HTML-escape
+            clean_text = re.sub(r"<style[^>]*>", "", translated_text)
+            clean_text = re.sub(r"</style>", "", clean_text)
+            safe_text = html.escape(clean_text)
 
             result = page.insert_htmlbox(
                 rect,
